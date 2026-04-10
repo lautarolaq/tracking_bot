@@ -34,9 +34,12 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
-if not DEV_MODE:
+try:
     from routes.webhook import router as webhook_router
     app.include_router(webhook_router)
+    logger.info("Webhook router loaded")
+except Exception as e:
+    logger.error(f"Failed to load webhook router: {e}")
 app.include_router(api_router)
 
 
