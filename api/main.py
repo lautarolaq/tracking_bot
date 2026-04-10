@@ -46,3 +46,16 @@ app.include_router(api_router)
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/debug/test-parse")
+async def debug_test_parse(text: str = "almorcé milanesa, 700 cal"):
+    """Debug endpoint to test LLM parsing."""
+    try:
+        from handlers.log_event import process_message, format_confirmation
+        events = await process_message(text)
+        confirmations = [format_confirmation(e) for e in events if e.get("category") not in ("unknown", "comando")]
+        return {"events": events, "confirmations": confirmations}
+    except Exception as e:
+        import traceback
+        return {"error": str(e), "traceback": traceback.format_exc()}
