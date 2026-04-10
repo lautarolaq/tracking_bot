@@ -1,8 +1,8 @@
 import logging
 from io import BytesIO
 
+import httpx
 from fastapi import APIRouter, Request, Response
-from telegram import Update, Bot
 
 from config import TELEGRAM_BOT_TOKEN, ALLOWED_CHAT_IDS
 from llm import transcribe_audio
@@ -12,11 +12,11 @@ from handlers.summary import generate_summary
 router = APIRouter(tags=["telegram"])
 logger = logging.getLogger(__name__)
 
-bot = Bot(token=TELEGRAM_BOT_TOKEN)
+TG_API = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
 # Simple rate limiter: {chat_id: [timestamps]}
 _rate: dict[int, list[float]] = {}
-RATE_LIMIT = 30  # max per minute
+RATE_LIMIT = 30
 
 
 def _check_rate(chat_id: int) -> bool:
@@ -31,42 +31,61 @@ def _check_rate(chat_id: int) -> bool:
     return True
 
 
+async def tg_send(chat_id: int, text: str, parse_mode: str = None):
+    async with httpx.AsyncClient() as client:
+        payload = {"chat_id": chat_id, "text": text}
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
+        await client.post(f"{TG_API}/sendMessage", json=payload)
+
+
+async def tg_send_photo(chat_id: int, photo_bytes: bytes):
+    async with httpx.AsyncClient() as client:
+        await client.post(
+            f"{TG_API}/sendPhoto",
+            data={"chat_id": chat_id},
+            files={"photo": ("chart.png", photo_bytes, "image/png")},
+        )
+
+
+async def tg_get_file(file_id: str) -> bytes:
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(f"{TG_API}/getFile", params={"file_id": file_id})
+        file_path = resp.json()["result"]["file_path"]
+        file_resp = await client.get(f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}")
+        return file_resp.content
+
+
 @router.post("/webhook")
 async def telegram_webhook(request: Request):
     try:
         data = await request.json()
-        update = Update.de_json(data, bot)
-
-        if not update.message:
+        message = data.get("message")
+        if not message:
             return Response(status_code=200)
 
-        chat_id = update.message.chat_id
+        chat_id = message["chat"]["id"]
 
-        # Validate allowed chat
         if ALLOWED_CHAT_IDS and chat_id not in ALLOWED_CHAT_IDS:
             logger.warning(f"Unauthorized chat_id: {chat_id}")
             return Response(status_code=200)
 
-        # Rate limit
         if not _check_rate(chat_id):
-            await bot.send_message(chat_id=chat_id, text="⏳ Demasiados mensajes, esperá un toque")
+            await tg_send(chat_id, "⏳ Demasiados mensajes, esperá un toque")
             return Response(status_code=200)
 
         # Extract text
         text = None
-        if update.message.voice or update.message.audio:
-            media = update.message.voice or update.message.audio
-            file = await bot.get_file(media.file_id)
-            buf = BytesIO()
-            await file.download_to_memory(buf)
-            audio_bytes = buf.getvalue()
+        voice = message.get("voice") or message.get("audio")
+        if voice:
+            file_id = voice["file_id"]
+            audio_bytes = await tg_get_file(file_id)
             text = await transcribe_audio(audio_bytes)
             if text:
-                # Send transcription preview
                 preview = text[:100] + "..." if len(text) > 100 else text
-                await bot.send_message(chat_id=chat_id, text=f"🎤 _{preview}_", parse_mode="Markdown")
+                await tg_send(chat_id, f"🎤 _{preview}_", "Markdown")
         else:
-            text = update.message.text
+            text = message.get("text", "")
 
         if not text:
             return Response(status_code=200)
@@ -75,7 +94,7 @@ async def telegram_webhook(request: Request):
         events = await process_message(text)
 
         if not events:
-            await bot.send_message(chat_id=chat_id, text="No entendí, probá de nuevo")
+            await tg_send(chat_id, "No entendí, probá de nuevo")
             return Response(status_code=200)
 
         # Check for commands
@@ -85,23 +104,23 @@ async def telegram_webhook(request: Request):
                 if cmd_data.get("tipo") == "resumen":
                     days = cmd_data.get("dias", 7)
                     summary_text, charts = await generate_summary(days)
-                    await bot.send_message(chat_id=chat_id, text=summary_text, parse_mode="Markdown")
+                    await tg_send(chat_id, summary_text, "Markdown")
                     for chart_bytes in charts:
-                        await bot.send_photo(chat_id=chat_id, photo=BytesIO(chart_bytes))
+                        await tg_send_photo(chat_id, chart_bytes)
                     return Response(status_code=200)
 
-        # Format confirmations for saved events
+        # Format confirmations
         confirmations = []
         for event in events:
             if event.get("category") not in ("unknown", "comando"):
                 confirmations.append(format_confirmation(event))
 
         if confirmations:
-            await bot.send_message(chat_id=chat_id, text="\n".join(confirmations))
+            await tg_send(chat_id, "\n".join(confirmations))
         else:
-            await bot.send_message(chat_id=chat_id, text="No entendí, probá de nuevo")
+            await tg_send(chat_id, "No entendí, probá de nuevo")
 
-    except Exception:
+    except Exception as e:
         logger.exception("Error processing webhook")
 
     return Response(status_code=200)
