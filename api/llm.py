@@ -1,10 +1,17 @@
+import os
 import json
 import asyncio
 from groq import AsyncGroq
 
-from config import GROQ_API_KEY
+_groq = None
 
-_groq = AsyncGroq(api_key=GROQ_API_KEY)
+
+def _get_groq():
+    global _groq
+    if _groq is None:
+        api_key = os.environ.get("GROQ_API_KEY", "")
+        _groq = AsyncGroq(api_key=api_key)
+    return _groq
 
 PARSE_MODEL = "llama-3.3-70b-versatile"
 WHISPER_MODEL = "whisper-large-v3"
@@ -13,7 +20,7 @@ WHISPER_MODEL = "whisper-large-v3"
 async def parse_message(text: str, system_prompt: str) -> list[dict]:
     for attempt in range(3):
         try:
-            resp = await _groq.chat.completions.create(
+            resp = await _get_groq().chat.completions.create(
                 model=PARSE_MODEL,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -43,7 +50,7 @@ async def parse_message(text: str, system_prompt: str) -> list[dict]:
 
 
 async def transcribe_audio(file_bytes: bytes, filename: str = "audio.ogg") -> str:
-    resp = await _groq.audio.transcriptions.create(
+    resp = await _get_groq().audio.transcriptions.create(
         model=WHISPER_MODEL,
         file=(filename, file_bytes),
         language="es",
@@ -52,7 +59,7 @@ async def transcribe_audio(file_bytes: bytes, filename: str = "audio.ogg") -> st
 
 
 async def generate_summary_text(events_summary: str, days: int) -> str:
-    resp = await _groq.chat.completions.create(
+    resp = await _get_groq().chat.completions.create(
         model=PARSE_MODEL,
         messages=[
             {

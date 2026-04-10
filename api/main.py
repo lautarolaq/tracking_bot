@@ -48,6 +48,17 @@ async def health():
     return {"status": "ok"}
 
 
+@app.get("/debug/env")
+async def debug_env():
+    import os
+    return {
+        "GROQ_API_KEY": os.environ.get("GROQ_API_KEY", "")[:10] + "..." if os.environ.get("GROQ_API_KEY") else "MISSING",
+        "TURSO_DATABASE_URL": os.environ.get("TURSO_DATABASE_URL", "")[:30] + "..." if os.environ.get("TURSO_DATABASE_URL") else "MISSING",
+        "TELEGRAM_BOT_TOKEN": "set" if os.environ.get("TELEGRAM_BOT_TOKEN") else "MISSING",
+        "ALLOWED_CHAT_IDS": os.environ.get("ALLOWED_CHAT_IDS", "MISSING"),
+    }
+
+
 @app.get("/debug/test-parse")
 async def debug_test_parse(text: str = "almorcé milanesa, 700 cal"):
     """Debug endpoint to test LLM parsing."""
