@@ -25,17 +25,25 @@ class _LocalClient:
         return _Result(cur.fetchall())
 
 
+class _TursoClient:
+    def __init__(self, url, auth_token):
+        import libsql_experimental as libsql
+        self.conn = libsql.connect("tracking.db", sync_url=url, auth_token=auth_token)
+        self.conn.sync()
+
+    def execute(self, sql, params=None):
+        cur = self.conn.execute(sql, params or [])
+        self.conn.commit()
+        return _Result(cur.fetchall())
+
+
 def _get_client():
     global _conn
     if _conn is None:
         if DEV_MODE:
             _conn = _LocalClient("/tmp/tracking-dev.db")
         else:
-            import libsql_client
-            _conn = libsql_client.create_client_sync(
-                url=TURSO_DATABASE_URL,
-                auth_token=TURSO_AUTH_TOKEN,
-            )
+            _conn = _TursoClient(TURSO_DATABASE_URL, TURSO_AUTH_TOKEN)
     return _conn
 
 
