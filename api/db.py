@@ -25,16 +25,50 @@ class _LocalClient:
         return _Result(cur.fetchall())
 
 
-class _TursoClient:
+class _TursoHTTPClient:
+    """Turso client using HTTP API (no native deps needed)."""
+
     def __init__(self, url, auth_token):
-        import libsql_experimental as libsql
-        self.conn = libsql.connect("tracking.db", sync_url=url, auth_token=auth_token)
-        self.conn.sync()
+        import httpx
+        # Convert libsql:// URL to HTTPS
+        self.base_url = url.replace("libsql://", "https://")
+        self.auth_token = auth_token
+        self._client = httpx.Client(timeout=30)
 
     def execute(self, sql, params=None):
-        cur = self.conn.execute(sql, params or [])
-        self.conn.commit()
-        return _Result(cur.fetchall())
+        import httpx
+        args = []
+        if params:
+            for p in params:
+                if p is None:
+                    args.append({"type": "null"})
+                elif isinstance(p, int):
+                    args.append({"type": "integer", "value": str(p)})
+                elif isinstance(p, float):
+                    args.append({"type": "float", "value": p})
+                else:
+                    args.append({"type": "text", "value": str(p)})
+
+        body = {
+            "requests": [
+                {"type": "execute", "stmt": {"sql": sql, "args": args}},
+                {"type": "close"}
+            ]
+        }
+        resp = self._client.post(
+            f"{self.base_url}/v2/pipeline",
+            headers={"Authorization": f"Bearer {self.auth_token}"},
+            json=body,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        result = data.get("results", [{}])[0]
+        response = result.get("response", {}).get("result", {})
+        cols = [c["name"] for c in response.get("cols", [])]
+        rows = []
+        for row in response.get("rows", []):
+            rows.append(tuple(cell.get("value") for cell in row))
+        return _Result(rows)
 
 
 def _get_client():
@@ -43,7 +77,7 @@ def _get_client():
         if DEV_MODE:
             _conn = _LocalClient("/tmp/tracking-dev.db")
         else:
-            _conn = _TursoClient(TURSO_DATABASE_URL, TURSO_AUTH_TOKEN)
+            _conn = _TursoHTTPClient(TURSO_DATABASE_URL, TURSO_AUTH_TOKEN)
     return _conn
 
 
