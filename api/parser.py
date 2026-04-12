@@ -30,7 +30,7 @@ Estructura de cada evento:
 {"category": "string", "data": { ... campos según categoría ... }, "confidence": 0.0-1.0}
 
 Campos por categoría:
-- comida: kcal, descripcion, proteinas?, carbos?, grasas?
+- comida: kcal, descripcion, proteinas, carbos, grasas (SIEMPRE estimá kcal y macros aunque el usuario no los diga. Usá tu conocimiento nutricional para estimar porciones argentinas típicas)
 - gym: ejercicio, peso_kg, reps, sets, sensacion? (1-10)
 - sueno: horas, calidad (1-10), notas?
 - energia: nivel (1-10), contexto?
@@ -42,7 +42,13 @@ Campos por categoría:
 Ejemplos:
 
 Input: "almorcé milanesa con ensalada, ponele 700"
-Output: [{"category": "comida", "data": {"kcal": 700, "descripcion": "milanesa con ensalada"}, "confidence": 0.9}]
+Output: [{"category": "comida", "data": {"kcal": 700, "descripcion": "milanesa con ensalada", "proteinas": 40, "carbos": 50, "grasas": 30}, "confidence": 0.9}]
+
+Input: "almorcé milanesa con ensalada"
+Output: [{"category": "comida", "data": {"kcal": 650, "descripcion": "milanesa con ensalada", "proteinas": 38, "carbos": 45, "grasas": 28}, "confidence": 0.85}]
+
+Input: "desayuné café con tostadas y palta"
+Output: [{"category": "comida", "data": {"kcal": 380, "descripcion": "café con tostadas y palta", "proteinas": 10, "carbos": 35, "grasas": 22}, "confidence": 0.8}]
 
 Input: "press 82.5 x 6 x 3, último set costó"
 Output: [{"category": "gym", "data": {"ejercicio": "press banca", "peso_kg": 82.5, "reps": 6, "sets": 3, "sensacion": 6}, "confidence": 0.95}]

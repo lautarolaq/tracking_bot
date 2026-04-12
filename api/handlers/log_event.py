@@ -23,7 +23,17 @@ def format_confirmation(event: dict) -> str:
     data = event.get("data", {})
 
     if cat == "comida":
-        return f"✓ {data.get('kcal', '?')} kcal"
+        parts = [f"✓ {data.get('kcal', '?')} kcal"]
+        macros = []
+        if data.get("proteinas"):
+            macros.append(f"P:{data['proteinas']}g")
+        if data.get("carbos"):
+            macros.append(f"C:{data['carbos']}g")
+        if data.get("grasas"):
+            macros.append(f"G:{data['grasas']}g")
+        if macros:
+            parts.append(f"({' '.join(macros)})")
+        return " ".join(parts)
     elif cat == "gym":
         ex = data.get("ejercicio", "?")
         peso = data.get("peso_kg", "")
